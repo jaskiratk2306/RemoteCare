@@ -1,0 +1,481 @@
+{% extends 'base.html' %}
+
+{% block title %}Admin Device Inventory & Assignment - RemoteCare{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-lg-4 py-4">
+
+    <!-- Top Administration Header -->
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
+        <div>
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge p-2 rounded-3" style="background-color: var(--rc-teal-light); color: var(--rc-teal);">
+                    <i class="bi bi-shield-lock fs-5"></i>
+                </span>
+                <div>
+                    <h3 class="fw-bold text-dark mb-0">Biomedical Device Management</h3>
+                    <p class="text-muted small mb-0">
+                        Register hardware devices, configure telemetry credentials, and assign IoT devices to patients.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex align-items-center gap-2">
+            <a href="#registerDeviceSection" class="btn btn-teal btn-sm shadow-sm">
+                <i class="bi bi-plus-circle me-1"></i> Register New Device
+            </a>
+            <a href="/admin/devices/device/" target="_blank" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-gear me-1"></i> Django Admin <i class="bi bi-box-arrow-up-right ms-1" style="font-size: 0.7rem;"></i>
+            </a>
+        </div>
+    </div>
+
+    <!-- Summary KPI Counter Cards -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card shadow-sm border-start border-4" style="border-left-color: var(--rc-teal) !important;">
+                <i class="bi bi-cpu-fill kpi-icon text-teal"></i>
+                <div class="kpi-title text-teal">Total Registered Devices</div>
+                <div class="kpi-value text-teal">{{ total_devices }}</div>
+                <div class="kpi-sub">Biomedical hardware serials</div>
+            </div>
+        </div>
+
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card shadow-sm border-start border-4" style="border-left-color: var(--rc-aqua) !important;">
+                <i class="bi bi-check-circle-fill kpi-icon" style="color: var(--rc-teal-dark);"></i>
+                <div class="kpi-title" style="color: var(--rc-teal-dark);">Active Ingestion Devices</div>
+                <div class="kpi-value" style="color: var(--rc-teal-dark);">{{ active_devices }}</div>
+                <div class="kpi-sub">Authorized for telemetry streaming</div>
+            </div>
+        </div>
+
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card shadow-sm border-start border-4" style="border-left-color: var(--rc-coral) !important;">
+                <i class="bi bi-pause-circle-fill kpi-icon text-coral"></i>
+                <div class="kpi-title text-coral">Deactivated Devices</div>
+                <div class="kpi-value text-coral">{{ inactive_devices }}</div>
+                <div class="kpi-sub">Temporarily deactivated or offline</div>
+            </div>
+        </div>
+
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card shadow-sm border-start border-4" style="border-left-color: var(--rc-teal-dark) !important;">
+                <i class="bi bi-wifi kpi-icon text-teal"></i>
+                <div class="kpi-title text-teal">Active Heartbeat (24h)</div>
+                <div class="kpi-value text-dark">{{ online_devices_24h }}</div>
+                <div class="kpi-sub">Transmitted telemetry in last 24 hrs</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alert Banner: Newly Generated Device API Key -->
+    {% if new_device_info %}
+        <div class="card shadow mb-4" style="border: 2px solid var(--rc-teal);">
+            <div class="card-header py-3 d-flex align-items-center justify-content-between" style="background-color: var(--rc-teal-light); border-bottom: 2px solid var(--rc-aqua);">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-key-fill text-teal fs-4"></i>
+                    <div>
+                        <h6 class="mb-0 fw-bold text-teal">Biomedical Device Secure API Key Generated!</h6>
+                        <span class="text-muted small">Save this key now &bull; Required for hardware or simulator telemetry streaming</span>
+                    </div>
+                </div>
+                <span class="badge" style="background-color: var(--rc-coral); color: #ffffff;">Action Required</span>
+            </div>
+            <div class="card-body p-4 bg-white">
+                <div class="row g-3 align-items-center mb-3">
+                    <div class="col-12 col-md-4">
+                        <div class="small text-muted">Hardware Serial ID:</div>
+                        <strong class="fs-6 text-dark font-monospace">{{ new_device_info.device_id }}</strong>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <div class="small text-muted">Device Category:</div>
+                        <strong class="fs-6 text-dark">{{ new_device_info.device_type }}</strong>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <div class="small text-muted">Assigned Patient:</div>
+                        <strong class="fs-6 text-dark">{{ new_device_info.patient }}</strong>
+                    </div>
+                </div>
+
+                <div class="p-3 rounded-3 border" style="background-color: var(--rc-bg);">
+                    <label class="form-label fw-bold text-secondary small mb-1">
+                        Device Secret API Key (Used in HTTP Header <code>X-API-KEY</code>):
+                    </label>
+                    <div class="input-group">
+                        <input type="text" id="newApiKeyInput" class="form-control font-monospace bg-white text-dark fw-bold" value="{{ new_device_info.api_key }}" readonly style="border-color: var(--rc-border);">
+                        <button class="btn btn-teal" type="button" id="copyNewApiKeyBtn">
+                            <i class="bi bi-clipboard me-1"></i> Copy API Key
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mt-3 small text-secondary">
+                    <i class="bi bi-terminal me-1 text-teal"></i> <strong>Simulator Usage Example:</strong>
+                    <code>python simulator/device_simulator.py --api-key {{ new_device_info.api_key }}</code>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+    <div class="row g-4">
+        <!-- Device Registration Form Section -->
+        <div class="col-12 col-xl-4" id="registerDeviceSection">
+            <div class="card shadow-sm border-0 sticky-xl-top" style="top: 85px;">
+                <div class="card-header bg-white py-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-plus-square-fill text-teal fs-5"></i>
+                        <div>
+                            <h5 class="mb-0 fw-bold text-dark">Register Biomedical Device</h5>
+                            <div class="text-muted small">Provision hardware and assign to patient</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-body p-4">
+                    <form method="post" action="{% url 'device-create' %}">
+                        {% csrf_token %}
+
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label for="{{ form.device_id.id_for_label }}" class="form-label fw-semibold text-secondary small mb-0">
+                                    Hardware Serial ID
+                                </label>
+                                <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none small text-teal" id="generateSerialBtn">
+                                    <i class="bi bi-magic me-1"></i> Auto-Generate
+                                </button>
+                            </div>
+                            {{ form.device_id }}
+                            <div class="form-text small">Unique serial or MAC (e.g. POX-1015, BPM-2050).</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="{{ form.device_type.id_for_label }}" class="form-label fw-semibold text-secondary small">
+                                Biomedical Category
+                            </label>
+                            {{ form.device_type }}
+                        </div>
+
+                        <div class="row g-2 mb-3">
+                            <div class="col-7">
+                                <label for="{{ form.model_name.id_for_label }}" class="form-label fw-semibold text-secondary small">
+                                    Make / Hardware Model
+                                </label>
+                                {{ form.model_name }}
+                            </div>
+                            <div class="col-5">
+                                <label for="{{ form.firmware_version.id_for_label }}" class="form-label fw-semibold text-secondary small">
+                                    Firmware
+                                </label>
+                                {{ form.firmware_version }}
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="{{ form.patient.id_for_label }}" class="form-label fw-semibold text-secondary small">
+                                Assign to Patient
+                            </label>
+                            {{ form.patient }}
+                        </div>
+
+                        <div class="form-check form-switch mb-4">
+                            {{ form.is_active }}
+                            <label class="form-check-label fw-semibold text-secondary small" for="{{ form.is_active.id_for_label }}">
+                                Permit Telemetry Ingestion (Active)
+                            </label>
+                        </div>
+
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-teal py-2 fw-semibold shadow-sm">
+                                <i class="bi bi-check2-circle me-1"></i> Register & Provision Device
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Devices Inventory & Assignment Table -->
+        <div class="col-12 col-xl-8">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-white py-3">
+                    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-table text-teal fs-5"></i>
+                            <div>
+                                <h5 class="mb-0 fw-bold text-dark">Biomedical Device Inventory</h5>
+                                <div class="text-muted small">Monitor heartbeat status, credentials & assignments</div>
+                            </div>
+                        </div>
+
+                        <!-- Search and Filter Form -->
+                        <form method="get" class="d-flex flex-wrap gap-2">
+                            <input type="text" name="q" class="form-control form-control-sm" placeholder="Search ID, model, patient..." value="{{ search_query }}" style="width: 180px; border-color: var(--rc-border);">
+
+                            <select name="type" class="form-select form-select-sm" style="width: 140px; border-color: var(--rc-border);" onchange="this.form.submit()">
+                                <option value="">All Categories</option>
+                                {% for val, label in device_types %}
+                                    <option value="{{ val }}" {% if device_type == val %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+
+                            <select name="status" class="form-select form-select-sm" style="width: 110px; border-color: var(--rc-border);" onchange="this.form.submit()">
+                                <option value="">All Status</option>
+                                <option value="active" {% if status_filter == 'active' %}selected{% endif %}>Active</option>
+                                <option value="inactive" {% if status_filter == 'inactive' %}selected{% endif %}>Inactive</option>
+                            </select>
+
+                            {% if search_query or device_type or status_filter %}
+                                <a href="{% url 'admin-devices' %}" class="btn btn-outline-secondary btn-sm" title="Clear Filters">
+                                    <i class="bi bi-x-circle"></i>
+                                </a>
+                            {% endif %}
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card-body p-0">
+                    {% if devices %}
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light text-secondary small text-uppercase">
+                                    <tr>
+                                        <th class="ps-3">Device ID & Model</th>
+                                        <th>Category</th>
+                                        <th>Assigned Patient</th>
+                                        <th>API Key</th>
+                                        <th>Status</th>
+                                        <th>Last Heartbeat</th>
+                                        <th class="text-end pe-3">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for dev in devices %}
+                                        <tr>
+                                            <td class="ps-3">
+                                                <div class="fw-bold text-dark font-monospace">{{ dev.device_id }}</div>
+                                                <div class="text-muted small" style="font-size: 0.75rem;">
+                                                    {{ dev.model_name|default:"Standard Device" }} &bull; {{ dev.firmware_version }}
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <span class="badge border" style="background-color: var(--rc-bg); color: var(--rc-teal-dark); border-color: var(--rc-border) !important;">
+                                                    {% if dev.device_type == 'pulse_oximeter' %}
+                                                        <i class="bi bi-heart-pulse text-coral me-1"></i>
+                                                    {% elif dev.device_type == 'bp_monitor' %}
+                                                        <i class="bi bi-activity text-teal me-1"></i>
+                                                    {% elif dev.device_type == 'glucometer' %}
+                                                        <i class="bi bi-droplet me-1" style="color: #e5a034;"></i>
+                                                    {% else %}
+                                                        <i class="bi bi-thermometer-half text-coral me-1"></i>
+                                                    {% endif %}
+                                                    {{ dev.get_device_type_display }}
+                                                </span>
+                                            </td>
+
+                                            <td>
+                                                <a href="{% url 'patient-detail' dev.patient.id %}" class="text-decoration-none fw-semibold text-dark">
+                                                    {{ dev.patient.get_full_name|default:dev.patient.username }}
+                                                </a>
+                                                <div class="text-muted" style="font-size: 0.725rem;">
+                                                    <code>{{ dev.patient.username }}</code>
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <div class="d-flex align-items-center gap-1">
+                                                    <span class="font-monospace text-muted small" style="font-size: 0.75rem;">
+                                                        {{ dev.api_key|slice:":10" }}&bull;&bull;&bull;&bull;
+                                                    </span>
+                                                    <button type="button" class="btn btn-link btn-sm p-0 text-teal copy-key-btn" data-key="{{ dev.api_key }}" title="Copy Full API Key">
+                                                        <i class="bi bi-clipboard"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                {% if dev.is_active %}
+                                                    <span class="badge border px-2 py-1" style="background-color: var(--rc-teal-light); color: var(--rc-teal-dark); border-color: var(--rc-aqua) !important;">
+                                                        <span class="live-beacon me-1"></span> Active
+                                                    </span>
+                                                {% else %}
+                                                    <span class="badge bg-secondary-subtle text-secondary px-2 py-1">
+                                                        Deactivated
+                                                    </span>
+                                                {% endif %}
+                                            </td>
+
+                                            <td class="small text-muted">
+                                                {% if dev.last_seen %}
+                                                    <div class="text-dark fw-medium">{{ dev.last_seen|date:"M d, H:i" }} UTC</div>
+                                                    <div style="font-size: 0.725rem;" class="text-teal">Online</div>
+                                                {% else %}
+                                                    <span class="text-muted">Never connected</span>
+                                                {% endif %}
+                                            </td>
+
+                                            <td class="text-end pe-3">
+                                                <div class="btn-group btn-group-sm">
+                                                    <!-- Reassign Patient Modal Trigger -->
+                                                    <button type="button" class="btn btn-outline-secondary reassign-btn"
+                                                        data-bs-toggle="modal"
+                                                        data-bs-target="#reassignDeviceModal"
+                                                        data-device-id="{{ dev.id }}"
+                                                        data-serial="{{ dev.device_id }}"
+                                                        data-patient-id="{{ dev.patient.id }}"
+                                                        title="Reassign to another patient">
+                                                        <i class="bi bi-person-gear"></i>
+                                                    </button>
+
+                                                    <!-- Toggle Active Form -->
+                                                    <form method="post" action="{% url 'device-toggle-active' dev.id %}" class="d-inline">
+                                                        {% csrf_token %}
+                                                        <button type="submit" class="btn {% if dev.is_active %}btn-outline-warning{% else %}btn-outline-success{% endif %}" title="{% if dev.is_active %}Deactivate Device{% else %}Activate Device{% endif %}">
+                                                            <i class="bi {% if dev.is_active %}bi-pause-circle{% else %}bi-play-circle{% endif %}"></i>
+                                                        </button>
+                                                    </form>
+
+                                                    <!-- Regenerate Key Form -->
+                                                    <form method="post" action="{% url 'device-regenerate-key' dev.id %}" class="d-inline" onsubmit="return confirm('Regenerating will invalidate the previous API key for {{ dev.device_id }}. Continue?')">
+                                                        {% csrf_token %}
+                                                        <button type="submit" class="btn btn-outline-danger" title="Regenerate API Key">
+                                                            <i class="bi bi-arrow-repeat"></i>
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-5">
+                            <i class="bi bi-cpu fs-1 text-muted opacity-50 mb-2 d-block"></i>
+                            <h6 class="fw-bold text-dark">No Biomedical Devices Found</h6>
+                            <p class="text-muted small mb-0">Adjust your search filters or register a new device using the form on the left.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Reassign Patient Modal -->
+<div class="modal fade" id="reassignDeviceModal" tabindex="-1" aria-labelledby="reassignModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header" style="background-color: var(--rc-teal-light); border-bottom: 2px solid var(--rc-aqua);">
+                <h5 class="modal-title fw-bold text-dark" id="reassignModalLabel">
+                    <i class="bi bi-person-gear text-teal me-1"></i> Reassign Biomedical Device
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="reassignForm" method="post" action="">
+                {% csrf_token %}
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold text-secondary small">Hardware Serial</label>
+                        <input type="text" id="reassignSerialDisplay" class="form-control font-monospace bg-light" readonly>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="reassignPatientSelect" class="form-label fw-semibold text-secondary small">
+                            Select New Assigned Patient
+                        </label>
+                        <select name="patient_id" id="reassignPatientSelect" class="form-select" required>
+                            {% for p in all_patients %}
+                                <option value="{{ p.id }}">
+                                    {{ p.get_full_name|default:p.username }} ({{ p.username }})
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-teal">
+                        <i class="bi bi-check-lg me-1"></i> Save Assignment
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const copyNewBtn = document.getElementById('copyNewApiKeyBtn');
+        const newApiKeyInput = document.getElementById('newApiKeyInput');
+        if (copyNewBtn && newApiKeyInput) {
+            copyNewBtn.addEventListener('click', function() {
+                navigator.clipboard.writeText(newApiKeyInput.value).then(() => {
+                    const originalHtml = copyNewBtn.innerHTML;
+                    copyNewBtn.innerHTML = '<i class="bi bi-check2 me-1"></i> Copied!';
+                    copyNewBtn.style.backgroundColor = 'var(--rc-coral)';
+                    setTimeout(() => {
+                        copyNewBtn.innerHTML = originalHtml;
+                        copyNewBtn.style.backgroundColor = '';
+                    }, 2000);
+                });
+            });
+        }
+
+        document.querySelectorAll('.copy-key-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const key = this.getAttribute('data-key');
+                navigator.clipboard.writeText(key).then(() => {
+                    const icon = this.querySelector('i');
+                    icon.className = 'bi bi-check-lg text-teal';
+                    setTimeout(() => {
+                        icon.className = 'bi bi-clipboard';
+                    }, 1500);
+                });
+            });
+        });
+
+        const generateBtn = document.getElementById('generateSerialBtn');
+        const deviceIdInput = document.querySelector('input[name="device_id"]');
+        const deviceTypeSelect = document.querySelector('select[name="device_type"]');
+
+        if (generateBtn && deviceIdInput) {
+            generateBtn.addEventListener('click', function() {
+                const type = (deviceTypeSelect ? deviceTypeSelect.value : '') || 'pox';
+                let prefix = 'DEV-';
+                if (type.includes('pulse')) prefix += 'POX-';
+                else if (type.includes('bp')) prefix += 'BPM-';
+                else if (type.includes('glu')) prefix += 'GLU-';
+                else if (type.includes('thermo')) prefix += 'THM-';
+                else prefix += 'DEV-';
+
+                const rand = Math.floor(1000 + Math.random() * 9000);
+                deviceIdInput.value = `${prefix}${rand}`;
+            });
+        }
+
+        const reassignForm = document.getElementById('reassignForm');
+        const reassignSerialDisplay = document.getElementById('reassignSerialDisplay');
+        const reassignPatientSelect = document.getElementById('reassignPatientSelect');
+
+        document.querySelectorAll('.reassign-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const devId = this.getAttribute('data-device-id');
+                const serial = this.getAttribute('data-serial');
+                const currentPatientId = this.getAttribute('data-patient-id');
+
+                reassignSerialDisplay.value = serial;
+                reassignForm.action = `/admin-portal/devices/${devId}/reassign/`;
+                if (reassignPatientSelect) {
+                    reassignPatientSelect.value = currentPatientId;
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}
