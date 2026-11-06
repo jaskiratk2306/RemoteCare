@@ -1,0 +1,803 @@
+{% extends 'base.html' %}
+
+{% block title %}Patient Telemetry & Chart - {{ patient.get_full_name|default:patient.username }} - RemoteCare{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-lg-4 py-4">
+
+    <!-- Breadcrumb & Nav back -->
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-0">
+                {% if user.is_doctor or user.is_admin_role %}
+                    <li class="breadcrumb-item"><a href="{% url 'doctor-dashboard' %}" class="text-decoration-none text-teal">Doctor Dashboard</a></li>
+                {% endif %}
+                <li class="breadcrumb-item active" aria-current="page">{{ patient.get_full_name|default:patient.username }}</li>
+            </ol>
+        </nav>
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-white text-secondary border px-3 py-2 shadow-sm d-flex align-items-center gap-2">
+                <span class="live-beacon" id="livePollingBeacon"></span>
+                <span id="pollingStatusText">Live Telemetry (5s Polling)</span>
+                <span class="text-muted small ms-1" id="lastPollTime">--:--:--</span>
+            </span>
+            <button class="btn btn-sm btn-outline-secondary" id="pauseResumeBtn" title="Pause or Resume Polling">
+                <i class="bi bi-pause-fill" id="pauseIcon"></i> <span id="pauseBtnText">Pause</span>
+            </button>
+            <button class="btn btn-sm btn-outline-teal" id="manualRefreshBtn" title="Poll API Now" style="border-color: var(--rc-teal); color: var(--rc-teal);">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+        </div>
+    </div>
+
+    <!-- Patient Clinical Banner -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body p-4">
+            <div class="row g-3 align-items-center">
+                <div class="col-12 col-md-auto text-center text-md-start">
+                    <div class="rounded-circle d-inline-flex align-items-center justify-content-center fw-bold" style="width: 72px; height: 72px; font-size: 1.8rem; background-color: var(--rc-teal-light); color: var(--rc-teal); border: 2px solid var(--rc-aqua);">
+                        {{ patient.first_name|slice:":1"|default:"P" }}{{ patient.last_name|slice:":1"|default:"" }}
+                    </div>
+                </div>
+
+                <div class="col-12 col-md">
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <h4 class="fw-bold text-dark mb-0">{{ patient.get_full_name|default:patient.username }}</h4>
+                        <span class="badge bg-light text-muted border">ID: {{ patient.username }}</span>
+                        {% if open_alerts %}
+                            <span class="badge badge-critical px-2 py-1 pulse-critical">
+                                <i class="bi bi-exclamation-triangle-fill me-1"></i> {{ open_alerts.count }} Open Alert{{ open_alerts.count|pluralize }}
+                            </span>
+                        {% else %}
+                            <span class="badge px-2 py-1 border" style="background-color: var(--rc-teal-light); color: var(--rc-teal-dark); border-color: var(--rc-aqua) !important;">
+                                <i class="bi bi-check-circle-fill me-1"></i> Stable Telemetry
+                            </span>
+                        {% endif %}
+                    </div>
+
+                    <div class="row g-2 mt-2 text-secondary small">
+                        <div class="col-6 col-sm-4 col-md-auto me-md-3">
+                            <span class="text-muted">Age / Gender:</span>
+                            <strong class="text-dark">
+                                {% if profile.age %}{{ profile.age }} yrs{% else %}N/A{% endif %},
+                                {{ profile.get_gender_display|default:"Unknown" }}
+                            </strong>
+                        </div>
+                        <div class="col-6 col-sm-4 col-md-auto me-md-3">
+                            <span class="text-muted">Blood Group:</span>
+                            <span class="badge border fw-semibold" style="background-color: var(--rc-cream); color: #644a04;">
+                                {{ profile.blood_group|default:"N/A" }}
+                            </span>
+                        </div>
+                        <div class="col-12 col-sm-4 col-md-auto me-md-3">
+                            <span class="text-muted">Emergency Contact:</span>
+                            <strong class="text-dark">{{ profile.emergency_contact|default:"None listed" }}</strong>
+                        </div>
+                        <div class="col-12 col-md-auto">
+                            <span class="text-muted">Attending Doctor:</span>
+                            <strong class="text-teal">
+                                {% if profile.assigned_doctor %}
+                                    Dr. {{ profile.assigned_doctor.get_full_name|default:profile.assigned_doctor.username }}
+                                {% else %}
+                                    Unassigned
+                                {% endif %}
+                            </strong>
+                        </div>
+                    </div>
+
+                    <div class="mt-2 text-secondary small">
+                        <span class="text-muted">Medical History & Diagnoses:</span>
+                        <span class="text-dark fw-medium">{{ profile.medical_history|default:"No chronic medical history recorded." }}</span>
+                    </div>
+                </div>
+
+                <!-- Assigned Devices Column -->
+                <div class="col-12 col-lg-3 border-start-lg pt-3 pt-lg-0">
+                    <h6 class="fw-bold text-secondary small text-uppercase mb-2">Connected Devices</h6>
+                    <div class="d-flex flex-column gap-1">
+                        {% for dev in devices %}
+                            <div class="d-flex align-items-center justify-content-between p-2 rounded bg-light border small">
+                                <div>
+                                    <span class="fw-semibold text-dark">{{ dev.get_device_type_display }}</span>
+                                    <div class="text-muted" style="font-size: 0.725rem;"><code>{{ dev.device_id }}</code> &bull; {{ dev.model_name|default:"Model v1" }}</div>
+                                </div>
+                                <span class="badge rounded-pill" style="font-size: 0.65rem; background-color: {% if dev.is_active %}var(--rc-teal){% else %}#94a3b8{% endif %};">
+                                    {% if dev.is_active %}Active{% else %}Off{% endif %}
+                                </span>
+                            </div>
+                        {% empty %}
+                            <span class="text-muted small">No biomedical devices assigned to this patient.</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Live Telemetry KPI Strip -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="kpi-card shadow-sm border-start border-4" style="border-left-color: var(--rc-coral) !important;">
+                <div class="kpi-title text-coral">Heart Rate</div>
+                <div class="kpi-value text-coral" id="kpiHeartRate">{{ latest_hr.value|default:"--" }}</div>
+                <div class="kpi-sub" id="kpiHeartRateSub">bpm &bull; {% if latest_hr %}{{ latest_hr.timestamp|date:"H:i" }} UTC{% else %}Awaiting{% endif %}</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="kpi-card shadow-sm border-start border-4" style="border-left-color: var(--rc-teal) !important;">
+                <div class="kpi-title text-teal">Oxygen (SpO2)</div>
+                <div class="kpi-value text-teal" id="kpiSpO2">{{ latest_spo2.value|default:"--" }}</div>
+                <div class="kpi-sub" id="kpiSpO2Sub">% &bull; {% if latest_spo2 %}{{ latest_spo2.timestamp|date:"H:i" }} UTC{% else %}Awaiting{% endif %}</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="kpi-card shadow-sm border-start border-4" style="border-left-color: #1b6b75 !important;">
+                <div class="kpi-title" style="color: #1b6b75;">Systolic BP</div>
+                <div class="kpi-value" style="color: #1b6b75;" id="kpiSysBP">{{ latest_sys.value|default:"--" }}</div>
+                <div class="kpi-sub" id="kpiSysBPSub">mmHg &bull; {% if latest_sys %}{{ latest_sys.timestamp|date:"H:i" }} UTC{% else %}Awaiting{% endif %}</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="kpi-card shadow-sm border-start border-4" style="border-left-color: var(--rc-aqua) !important;">
+                <div class="kpi-title text-secondary">Diastolic BP</div>
+                <div class="kpi-value text-secondary" id="kpiDiaBP">{{ latest_dia.value|default:"--" }}</div>
+                <div class="kpi-sub" id="kpiDiaBPSub">mmHg &bull; {% if latest_dia %}{{ latest_dia.timestamp|date:"H:i" }} UTC{% else %}Awaiting{% endif %}</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="kpi-card shadow-sm border-start border-4" style="border-left-color: #e5a034 !important;">
+                <div class="kpi-title" style="color: #b37311;">Blood Glucose</div>
+                <div class="kpi-value" style="color: #b37311;" id="kpiGlucose">{{ latest_glucose.value|default:"--" }}</div>
+                <div class="kpi-sub" id="kpiGlucoseSub">mg/dL &bull; {% if latest_glucose %}{{ latest_glucose.timestamp|date:"H:i" }} UTC{% else %}Awaiting{% endif %}</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="kpi-card shadow-sm border-start border-4" style="border-left-color: var(--rc-coral-dark) !important;">
+                <div class="kpi-title text-coral">Temperature</div>
+                <div class="kpi-value text-coral" id="kpiTemp">{{ latest_temp.value|default:"--" }}</div>
+                <div class="kpi-sub" id="kpiTempSub">°C &bull; {% if latest_temp %}{{ latest_temp.timestamp|date:"H:i" }} UTC{% else %}Awaiting{% endif %}</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Live Line Charts for Each Vital Section -->
+    <div class="row g-4 mb-4">
+        <!-- 1. Heart Rate Chart -->
+        <div class="col-12 col-lg-6">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white d-flex align-items-center justify-content-between py-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-heart-pulse-fill text-coral fs-5"></i>
+                        <div>
+                            <span class="fw-bold text-dark">Heart Rate Telemetry</span>
+                            <span class="text-muted small ms-1">(bpm)</span>
+                        </div>
+                    </div>
+                    <span class="badge border" id="chartHrLatest" style="background-color: var(--rc-coral-light); color: var(--rc-coral-dark); border-color: var(--rc-coral) !important;">
+                        {{ latest_hr.value|default:"--" }} bpm
+                    </span>
+                </div>
+                <div class="card-body p-3">
+                    <div class="chart-box">
+                        <canvas id="heartRateChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Oxygen Saturation (SpO2) Chart -->
+        <div class="col-12 col-lg-6">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white d-flex align-items-center justify-content-between py-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-lungs-fill text-teal fs-5"></i>
+                        <div>
+                            <span class="fw-bold text-dark">Oxygen Saturation (SpO2)</span>
+                            <span class="text-muted small ms-1">(%)</span>
+                        </div>
+                    </div>
+                    <span class="badge border" id="chartSpo2Latest" style="background-color: var(--rc-teal-light); color: var(--rc-teal-dark); border-color: var(--rc-aqua) !important;">
+                        {{ latest_spo2.value|default:"--" }}%
+                    </span>
+                </div>
+                <div class="card-body p-3">
+                    <div class="chart-box">
+                        <canvas id="spo2Chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. Blood Pressure Chart (Dual Systolic & Diastolic) -->
+        <div class="col-12 col-lg-6">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white d-flex align-items-center justify-content-between py-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-activity text-teal fs-5"></i>
+                        <div>
+                            <span class="fw-bold text-dark">Blood Pressure Dynamics</span>
+                            <span class="text-muted small ms-1">(Systolic & Diastolic mmHg)</span>
+                        </div>
+                    </div>
+                    <span class="badge border" id="chartBpLatest" style="background-color: var(--rc-teal-light); color: var(--rc-teal-dark); border-color: var(--rc-aqua) !important;">
+                        {{ latest_sys.value|default:"--" }}/{{ latest_dia.value|default:"--" }} mmHg
+                    </span>
+                </div>
+                <div class="card-body p-3">
+                    <div class="chart-box">
+                        <canvas id="bpChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. Blood Glucose Chart -->
+        <div class="col-12 col-lg-6">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white d-flex align-items-center justify-content-between py-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-droplet-fill fs-5" style="color: #e5a034;"></i>
+                        <div>
+                            <span class="fw-bold text-dark">Blood Glucose Ingestion</span>
+                            <span class="text-muted small ms-1">(mg/dL)</span>
+                        </div>
+                    </div>
+                    <span class="badge border" id="chartGlucoseLatest" style="background-color: var(--rc-cream); color: #644a04; border-color: #ebd79e !important;">
+                        {{ latest_glucose.value|default:"--" }} mg/dL
+                    </span>
+                </div>
+                <div class="card-body p-3">
+                    <div class="chart-box">
+                        <canvas id="glucoseChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 5. Body Temperature Chart -->
+        <div class="col-12">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-white d-flex align-items-center justify-content-between py-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-thermometer-half text-coral fs-5"></i>
+                        <div>
+                            <span class="fw-bold text-dark">Body Temperature Telemetry</span>
+                            <span class="text-muted small ms-1">(°C)</span>
+                        </div>
+                    </div>
+                    <span class="badge border" id="chartTempLatest" style="background-color: var(--rc-coral-light); color: var(--rc-coral-dark); border-color: var(--rc-coral) !important;">
+                        {{ latest_temp.value|default:"--" }} °C
+                    </span>
+                </div>
+                <div class="card-body p-3">
+                    <div class="chart-box" style="height: 200px;">
+                        <canvas id="tempChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notes & Appointments Section -->
+    <div class="row g-4">
+        <!-- Notes Section -->
+        <div class="col-12 col-lg-6">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white d-flex align-items-center justify-content-between py-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-journal-medical text-teal fs-5"></i>
+                        <h5 class="mb-0 fw-bold text-dark">Clinical Notes & Observations</h5>
+                    </div>
+                    <span class="badge bg-light text-secondary border">{{ notes.count }} Note{{ notes.count|pluralize }}</span>
+                </div>
+
+                <div class="card-body p-4">
+                    {% if user.is_doctor or user.is_admin_role %}
+                        <form method="post" action="{% url 'add-clinical-note' patient.id %}" class="mb-4">
+                            {% csrf_token %}
+                            <label for="id_note" class="form-label fw-semibold text-secondary small">
+                                <i class="bi bi-pencil-square me-1"></i> Add Doctor Consultation Note
+                            </label>
+                            <textarea name="note" id="id_note" class="form-control mb-2" rows="3" placeholder="Document clinical findings, treatment progress, or prescription updates..." required style="border-color: var(--rc-border);"></textarea>
+                            <div class="text-end">
+                                <button type="submit" class="btn btn-teal btn-sm px-3 shadow-sm">
+                                    <i class="bi bi-plus-circle me-1"></i> Save Clinical Note
+                                </button>
+                            </div>
+                        </form>
+                        <hr class="text-muted my-3">
+                    {% endif %}
+
+                    <!-- Notes Chronological List -->
+                    <div class="notes-timeline d-flex flex-column gap-3" style="max-height: 400px; overflow-y: auto;">
+                        {% for n in notes %}
+                            <div class="p-3 rounded-3 border" style="background-color: var(--rc-bg); border-color: var(--rc-border) !important;">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="fw-bold text-dark small">
+                                        <i class="bi bi-person-badge text-teal me-1"></i> Dr. {{ n.doctor.get_full_name|default:n.doctor.username }}
+                                    </span>
+                                    <span class="text-muted" style="font-size: 0.75rem;">
+                                        <i class="bi bi-clock me-1"></i> {{ n.created_at|date:"M d, Y &bull; H:i" }} UTC
+                                    </span>
+                                </div>
+                                <p class="text-secondary mb-0 small" style="white-space: pre-wrap;">{{ n.note }}</p>
+                            </div>
+                        {% empty %}
+                            <div class="text-center py-4 text-muted small">
+                                <i class="bi bi-chat-square-text fs-3 d-block mb-1 text-secondary opacity-50"></i>
+                                No clinical notes recorded for this patient yet.
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Appointments Section -->
+        <div class="col-12 col-lg-6">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white d-flex align-items-center justify-content-between py-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-calendar2-week text-teal fs-5"></i>
+                        <h5 class="mb-0 fw-bold text-dark">Clinical Appointments</h5>
+                    </div>
+                    <button class="btn btn-sm btn-outline-teal" data-bs-toggle="modal" data-bs-target="#scheduleApptModal" style="border-color: var(--rc-teal); color: var(--rc-teal);">
+                        <i class="bi bi-calendar-plus me-1"></i> Schedule
+                    </button>
+                </div>
+
+                <div class="card-body p-4">
+                    <div class="appointments-list d-flex flex-column gap-2" style="max-height: 480px; overflow-y: auto;">
+                        {% for appt in appointments %}
+                            <div class="p-3 rounded-3 border bg-white shadow-sm d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
+                                <div>
+                                    <div class="d-flex align-items-center gap-2 mb-1">
+                                        <span class="fw-bold text-dark fs-6">
+                                            {{ appt.datetime|date:"l, M d, Y &bull; H:i" }} UTC
+                                        </span>
+                                        <span class="badge border" style="font-size: 0.7rem; background-color: {% if appt.status == 'scheduled' %}var(--rc-teal-light){% elif appt.status == 'completed' %}#dcfce7{% else %}#f1f5f9{% endif %}; color: {% if appt.status == 'scheduled' %}var(--rc-teal-dark){% elif appt.status == 'completed' %}#15803d{% else %}#475569{% endif %};">
+                                            {{ appt.get_status_display }}
+                                        </span>
+                                    </div>
+                                    <div class="text-muted small">
+                                        Physician: <strong>Dr. {{ appt.doctor.get_full_name|default:appt.doctor.username }}</strong>
+                                    </div>
+                                    <div class="text-secondary small mt-1">
+                                        <i class="bi bi-info-circle me-1"></i> {{ appt.reason }}
+                                    </div>
+                                </div>
+
+                                {% if user.is_doctor or user.is_admin_role %}
+                                    <div class="d-flex gap-1 mt-2 mt-sm-0">
+                                        {% if appt.status == 'scheduled' %}
+                                            <form method="post" action="{% url 'update-appointment-status' appt.id %}">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="status" value="completed">
+                                                <button type="submit" class="btn btn-sm btn-teal" title="Mark Completed">
+                                                    <i class="bi bi-check-lg"></i> Complete
+                                                </button>
+                                            </form>
+                                            <form method="post" action="{% url 'update-appointment-status' appt.id %}">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="status" value="cancelled">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Cancel Consultation">
+                                                    <i class="bi bi-x-lg"></i>
+                                                </button>
+                                            </form>
+                                        {% endif %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        {% empty %}
+                            <div class="text-center py-4 text-muted small">
+                                <i class="bi bi-calendar-x fs-3 d-block mb-1 text-secondary opacity-50"></i>
+                                No consultations scheduled for this patient.
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Schedule Appointment Modal -->
+<div class="modal fade" id="scheduleApptModal" tabindex="-1" aria-labelledby="scheduleApptModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header" style="background-color: var(--rc-teal-light); border-bottom: 2px solid var(--rc-aqua);">
+                <h5 class="modal-title fw-bold text-dark" id="scheduleApptModalLabel">
+                    <i class="bi bi-calendar-plus text-teal me-1"></i> Schedule Clinical Consultation
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="{% url 'book-appointment' %}">
+                {% csrf_token %}
+                <input type="hidden" name="patient_id" value="{{ patient.id }}">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold text-secondary small">Patient</label>
+                        <input type="text" class="form-control bg-light" value="{{ patient.get_full_name|default:patient.username }}" readonly>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="doctorSelect" class="form-label fw-semibold text-secondary small">Attending Doctor</label>
+                        <select name="doctor" id="doctorSelect" class="form-select" required>
+                            {% for doc in doctors %}
+                                <option value="{{ doc.id }}" {% if profile.assigned_doctor and profile.assigned_doctor.id == doc.id or user.id == doc.id %}selected{% endif %}>
+                                    Dr. {{ doc.get_full_name|default:doc.username }} ({{ doc.username }})
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="appointmentDatetime" class="form-label fw-semibold text-secondary small">Date & Time (UTC)</label>
+                        <input type="datetime-local" name="datetime" id="appointmentDatetime" class="form-control" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="appointmentReason" class="form-label fw-semibold text-secondary small">Clinical Purpose / Reason</label>
+                        <textarea name="reason" id="appointmentReason" class="form-control" rows="3" placeholder="Telemetry threshold review, routine checkup, medication evaluation..." required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-teal">
+                        <i class="bi bi-check-lg me-1"></i> Confirm Appointment
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const patientId = {{ patient.id }};
+        let isPollingPaused = false;
+        let pollTimer = null;
+
+        Chart.defaults.font.family = "'Inter', sans-serif";
+        Chart.defaults.font.size = 11;
+        Chart.defaults.color = '#55797f';
+
+        // Palette 1 Chart Colors
+        const COLOR_AQUA = '#8bd7d2';
+        const COLOR_TEAL = '#32a0a1';
+        const COLOR_TEAL_DARK = '#1b6b75';
+        const COLOR_CORAL = '#ff8d51';
+        const COLOR_GOLD = '#e5a034';
+
+        // 1. Heart Rate Chart (Warm Coral)
+        const hrCtx = document.getElementById('heartRateChart').getContext('2d');
+        const hrChart = new Chart(hrCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Heart Rate (bpm)',
+                    data: [],
+                    borderColor: COLOR_CORAL,
+                    backgroundColor: 'rgba(255, 141, 81, 0.12)',
+                    borderWidth: 2.5,
+                    tension: 0.35,
+                    fill: true,
+                    pointRadius: 3,
+                    pointHoverRadius: 6,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: (ctx) => ` Heart Rate: ${ctx.parsed.y} bpm` } }
+                },
+                scales: {
+                    x: { grid: { display: false } },
+                    y: { suggestedMin: 50, suggestedMax: 130, grid: { color: '#eef5f4' } }
+                }
+            }
+        });
+
+        // 2. Oxygen Saturation (SpO2) Chart (Deep Teal)
+        const spo2Ctx = document.getElementById('spo2Chart').getContext('2d');
+        const spo2Chart = new Chart(spo2Ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'SpO2 (%)',
+                    data: [],
+                    borderColor: COLOR_TEAL,
+                    backgroundColor: 'rgba(50, 160, 161, 0.12)',
+                    borderWidth: 2.5,
+                    tension: 0.35,
+                    fill: true,
+                    pointRadius: 3,
+                    pointHoverRadius: 6,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: (ctx) => ` SpO2: ${ctx.parsed.y}%` } }
+                },
+                scales: {
+                    x: { grid: { display: false } },
+                    y: { suggestedMin: 85, suggestedMax: 100, grid: { color: '#eef5f4' } }
+                }
+            }
+        });
+
+        // 3. Blood Pressure Chart (Systolic: Deep Teal, Diastolic: Soft Aqua)
+        const bpCtx = document.getElementById('bpChart').getContext('2d');
+        const bpChart = new Chart(bpCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Systolic BP (mmHg)',
+                        data: [],
+                        borderColor: COLOR_TEAL_DARK,
+                        backgroundColor: 'rgba(27, 107, 117, 0.08)',
+                        borderWidth: 2.5,
+                        tension: 0.35,
+                        fill: false,
+                        pointRadius: 3,
+                    },
+                    {
+                        label: 'Diastolic BP (mmHg)',
+                        data: [],
+                        borderColor: COLOR_AQUA,
+                        backgroundColor: 'rgba(139, 215, 210, 0.12)',
+                        borderWidth: 2.5,
+                        tension: 0.35,
+                        fill: false,
+                        pointRadius: 3,
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'top', labels: { boxWidth: 12 } } },
+                scales: {
+                    x: { grid: { display: false } },
+                    y: { suggestedMin: 50, suggestedMax: 160, grid: { color: '#eef5f4' } }
+                }
+            }
+        });
+
+        // 4. Blood Glucose Chart (Warm Gold)
+        const glucoseCtx = document.getElementById('glucoseChart').getContext('2d');
+        const glucoseChart = new Chart(glucoseCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Glucose (mg/dL)',
+                    data: [],
+                    borderColor: COLOR_GOLD,
+                    backgroundColor: 'rgba(229, 160, 52, 0.12)',
+                    borderWidth: 2.5,
+                    tension: 0.35,
+                    fill: true,
+                    pointRadius: 3,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: (ctx) => ` Glucose: ${ctx.parsed.y} mg/dL` } }
+                },
+                scales: {
+                    x: { grid: { display: false } },
+                    y: { suggestedMin: 60, suggestedMax: 200, grid: { color: '#eef5f4' } }
+                }
+            }
+        });
+
+        // 5. Body Temperature Chart (Coral)
+        const tempCtx = document.getElementById('tempChart').getContext('2d');
+        const tempChart = new Chart(tempCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Temperature (°C)',
+                    data: [],
+                    borderColor: COLOR_CORAL,
+                    backgroundColor: 'rgba(255, 141, 81, 0.12)',
+                    borderWidth: 2.5,
+                    tension: 0.35,
+                    fill: true,
+                    pointRadius: 3,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: (ctx) => ` Temperature: ${ctx.parsed.y} °C` } }
+                },
+                scales: {
+                    x: { grid: { display: false } },
+                    y: { suggestedMin: 35.0, suggestedMax: 40.0, grid: { color: '#eef5f4' } }
+                }
+            }
+        });
+
+        function formatLabel(ts) {
+            if (!ts) return '';
+            const parts = ts.split(' ');
+            if (parts.length === 2) {
+                return `${parts[0].slice(5)} ${parts[1].slice(0, 5)}`;
+            }
+            const d = new Date(ts);
+            return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+        }
+
+        function pollPatientVitals() {
+            if (isPollingPaused) return;
+
+            fetch(`/api/patients/${patientId}/vitals/?page_size=100`)
+                .then(res => {
+                    if (!res.ok) throw new Error('API returned status ' + res.status);
+                    return res.json();
+                })
+                .then(data => {
+                    const results = data.results || [];
+
+                    const hrReadings = [];
+                    const spo2Readings = [];
+                    const sysReadings = [];
+                    const diaReadings = [];
+                    const glucoseReadings = [];
+                    const tempReadings = [];
+
+                    results.forEach(item => {
+                        switch (item.vital_type) {
+                            case 'heart_rate': hrReadings.push(item); break;
+                            case 'spo2': spo2Readings.push(item); break;
+                            case 'systolic_bp': sysReadings.push(item); break;
+                            case 'diastolic_bp': diaReadings.push(item); break;
+                            case 'blood_glucose': glucoseReadings.push(item); break;
+                            case 'temperature': tempReadings.push(item); break;
+                        }
+                    });
+
+                    const sortByTime = (a, b) => new Date(a.timestamp.replace(' ', 'T')) - new Date(b.timestamp.replace(' ', 'T'));
+                    hrReadings.sort(sortByTime);
+                    spo2Readings.sort(sortByTime);
+                    sysReadings.sort(sortByTime);
+                    diaReadings.sort(sortByTime);
+                    glucoseReadings.sort(sortByTime);
+                    tempReadings.sort(sortByTime);
+
+                    // HR
+                    hrChart.data.labels = hrReadings.map(r => formatLabel(r.timestamp));
+                    hrChart.data.datasets[0].data = hrReadings.map(r => r.value);
+                    hrChart.update('none');
+
+                    if (hrReadings.length > 0) {
+                        const latest = hrReadings[hrReadings.length - 1];
+                        document.getElementById('kpiHeartRate').textContent = latest.value;
+                        document.getElementById('chartHrLatest').textContent = `${latest.value} bpm`;
+                        document.getElementById('kpiHeartRateSub').textContent = `bpm • ${formatLabel(latest.timestamp)}`;
+                    }
+
+                    // SpO2
+                    spo2Chart.data.labels = spo2Readings.map(r => formatLabel(r.timestamp));
+                    spo2Chart.data.datasets[0].data = spo2Readings.map(r => r.value);
+                    spo2Chart.update('none');
+
+                    if (spo2Readings.length > 0) {
+                        const latest = spo2Readings[spo2Readings.length - 1];
+                        document.getElementById('kpiSpO2').textContent = latest.value;
+                        document.getElementById('chartSpo2Latest').textContent = `${latest.value}%`;
+                        document.getElementById('kpiSpO2Sub').textContent = `% • ${formatLabel(latest.timestamp)}`;
+                    }
+
+                    // BP
+                    const bpMap = new Map();
+                    sysReadings.forEach(r => {
+                        const key = formatLabel(r.timestamp);
+                        if (!bpMap.has(key)) bpMap.set(key, {});
+                        bpMap.get(key).sys = r.value;
+                    });
+                    diaReadings.forEach(r => {
+                        const key = formatLabel(r.timestamp);
+                        if (!bpMap.has(key)) bpMap.set(key, {});
+                        bpMap.get(key).dia = r.value;
+                    });
+
+                    const bpLabels = Array.from(bpMap.keys());
+                    bpChart.data.labels = bpLabels;
+                    bpChart.data.datasets[0].data = bpLabels.map(k => bpMap.get(k).sys || null);
+                    bpChart.data.datasets[1].data = bpLabels.map(k => bpMap.get(k).dia || null);
+                    bpChart.update('none');
+
+                    if (sysReadings.length > 0) {
+                        const latestSys = sysReadings[sysReadings.length - 1].value;
+                        const latestDia = diaReadings.length > 0 ? diaReadings[diaReadings.length - 1].value : '--';
+                        document.getElementById('kpiSysBP').textContent = latestSys;
+                        document.getElementById('kpiDiaBP').textContent = latestDia;
+                        document.getElementById('chartBpLatest').textContent = `${latestSys}/${latestDia} mmHg`;
+                    }
+
+                    // Glucose
+                    glucoseChart.data.labels = glucoseReadings.map(r => formatLabel(r.timestamp));
+                    glucoseChart.data.datasets[0].data = glucoseReadings.map(r => r.value);
+                    glucoseChart.update('none');
+
+                    if (glucoseReadings.length > 0) {
+                        const latest = glucoseReadings[glucoseReadings.length - 1];
+                        document.getElementById('kpiGlucose').textContent = latest.value;
+                        document.getElementById('chartGlucoseLatest').textContent = `${latest.value} mg/dL`;
+                        document.getElementById('kpiGlucoseSub').textContent = `mg/dL • ${formatLabel(latest.timestamp)}`;
+                    }
+
+                    // Temp
+                    tempChart.data.labels = tempReadings.map(r => formatLabel(r.timestamp));
+                    tempChart.data.datasets[0].data = tempReadings.map(r => r.value);
+                    tempChart.update('none');
+
+                    if (tempReadings.length > 0) {
+                        const latest = tempReadings[tempReadings.length - 1];
+                        document.getElementById('kpiTemp').textContent = latest.value;
+                        document.getElementById('chartTempLatest').textContent = `${latest.value} °C`;
+                        document.getElementById('kpiTempSub').textContent = `°C • ${formatLabel(latest.timestamp)}`;
+                    }
+
+                    const now = new Date();
+                    document.getElementById('lastPollTime').textContent = now.toTimeString().split(' ')[0] + ' UTC';
+                })
+                .catch(err => console.warn('Telemetry polling error:', err));
+        }
+
+        pollPatientVitals();
+        pollTimer = setInterval(pollPatientVitals, 5000);
+
+        document.getElementById('manualRefreshBtn').addEventListener('click', function() {
+            this.classList.add('disabled');
+            pollPatientVitals();
+            setTimeout(() => this.classList.remove('disabled'), 600);
+        });
+
+        const pauseResumeBtn = document.getElementById('pauseResumeBtn');
+        const pauseIcon = document.getElementById('pauseIcon');
+        const pauseBtnText = document.getElementById('pauseBtnText');
+        const beacon = document.getElementById('livePollingBeacon');
+        const statusText = document.getElementById('pollingStatusText');
+
+        pauseResumeBtn.addEventListener('click', function() {
+            isPollingPaused = !isPollingPaused;
+            if (isPollingPaused) {
+                pauseIcon.className = 'bi bi-play-fill';
+                pauseBtnText.textContent = 'Resume';
+                beacon.style.backgroundColor = '#94a3b8';
+                beacon.style.animation = 'none';
+                statusText.textContent = 'Polling Paused';
+            } else {
+                pauseIcon.className = 'bi bi-pause-fill';
+                pauseBtnText.textContent = 'Pause';
+                beacon.style.backgroundColor = 'var(--rc-teal)';
+                beacon.style.animation = 'pulse-beacon 2s infinite';
+                statusText.textContent = 'Live Telemetry (5s Polling)';
+                pollPatientVitals();
+            }
+        });
+    });
+</script>
+{% endblock %}
