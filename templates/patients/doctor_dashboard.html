@@ -1,0 +1,449 @@
+{% extends 'base.html' %}
+
+{% block title %}Doctor Telemetry Dashboard - RemoteCare{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-lg-4 py-4">
+
+    <!-- Top Clinical Header -->
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
+        <div>
+            <div class="d-flex align-items-center gap-2">
+                <h3 class="fw-bold text-dark mb-0">Clinical Telemetry Dashboard</h3>
+                <span class="badge border px-2 py-1" style="font-size: 0.75rem; background-color: var(--rc-teal-light); color: var(--rc-teal); border-color: var(--rc-aqua) !important;">
+                    <span class="live-beacon me-1"></span> Live Monitoring
+                </span>
+            </div>
+            <p class="text-muted small mb-0 mt-1">
+                Attending Physician: <strong class="text-dark">{{ user.get_full_name|default:user.username }}</strong> &bull; Remote Patient Monitoring (RPM) Unit
+            </p>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-white text-secondary border px-3 py-2 shadow-sm">
+                <i class="bi bi-clock me-1 text-teal"></i> <span id="clockUTC">{{ now|date:"Y-m-d H:i:s" }} UTC</span>
+            </span>
+        </div>
+    </div>
+
+    <!-- Summary KPI Counter Cards -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card shadow-sm border-start border-4" style="border-left-color: var(--rc-teal) !important;">
+                <i class="bi bi-people-fill kpi-icon text-teal"></i>
+                <div class="kpi-title text-teal">Assigned Patients</div>
+                <div class="kpi-value text-teal">{{ total_assigned }}</div>
+                <div class="kpi-sub">Active patient profiles under care</div>
+            </div>
+        </div>
+
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card shadow-sm border-start border-4" style="border-left-color: {% if critical_alerts > 0 %}var(--rc-coral){% else %}var(--rc-aqua){% endif %} !important;">
+                <i class="bi bi-exclamation-diamond-fill kpi-icon text-coral"></i>
+                <div class="kpi-title text-coral">Open Alerts</div>
+                <div class="kpi-value text-coral" id="totalOpenAlertsCount">
+                    {{ total_open_alerts }}
+                </div>
+                <div class="kpi-sub">
+                    {% if critical_alerts > 0 %}
+                        <span class="text-coral fw-semibold"><i class="bi bi-exclamation-triangle-fill"></i> {{ critical_alerts }} Critical</span>
+                    {% else %}
+                        No critical violations
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card shadow-sm border-start border-4" style="border-left-color: var(--rc-coral) !important;">
+                <i class="bi bi-heart-pulse-fill kpi-icon text-coral"></i>
+                <div class="kpi-title text-coral">Critical Triage</div>
+                <div class="kpi-value {% if critical_alerts > 0 %}text-coral pulse-critical{% else %}text-muted{% endif %}">
+                    {{ critical_alerts }}
+                </div>
+                <div class="kpi-sub">Requires immediate clinical attention</div>
+            </div>
+        </div>
+
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card shadow-sm border-start border-4" style="border-left-color: var(--rc-teal-dark) !important;">
+                <i class="bi bi-calendar2-check-fill kpi-icon text-teal"></i>
+                <div class="kpi-title text-teal">Upcoming Consultations</div>
+                <div class="kpi-value text-dark">{{ upcoming_appointments.count }}</div>
+                <div class="kpi-sub">Scheduled follow-up appointments</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Open Alerts Section -->
+    <div class="card shadow-sm mb-4 border-0">
+        <div class="card-header bg-white d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 py-3">
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge p-2 rounded-3" style="background-color: var(--rc-coral-light); color: var(--rc-coral);">
+                    <i class="bi bi-bell-fill fs-6"></i>
+                </span>
+                <div>
+                    <h5 class="mb-0 fw-bold text-dark">Open Telemetry Alerts</h5>
+                    <div class="text-muted small">Biometric threshold violations requiring doctor triage & review</div>
+                </div>
+            </div>
+
+            <!-- Scope filter -->
+            <div class="btn-group btn-group-sm" role="group">
+                <a href="?scope=assigned" class="btn {% if alerts_scope != 'all' %}btn-teal{% else %}btn-outline-secondary{% endif %}">
+                    <i class="bi bi-person-check me-1"></i> My Patients
+                </a>
+                <a href="?scope=all" class="btn {% if alerts_scope == 'all' %}btn-teal{% else %}btn-outline-secondary{% endif %}">
+                    <i class="bi bi-globe me-1"></i> All Alerts
+                </a>
+            </div>
+        </div>
+
+        <div class="card-body p-0">
+            {% if open_alerts %}
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" id="alertsTable">
+                        <thead class="table-light text-secondary small text-uppercase">
+                            <tr>
+                                <th class="ps-3" style="width: 15%;">Patient</th>
+                                <th style="width: 15%;">Vital Parameter</th>
+                                <th style="width: 15%;">Measured Value</th>
+                                <th style="width: 20%;">Threshold Violated</th>
+                                <th style="width: 12%;">Severity</th>
+                                <th style="width: 13%;">Triggered At</th>
+                                <th class="text-end pe-3" style="width: 10%;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for alert in open_alerts %}
+                                <tr id="alert-row-{{ alert.id }}" class="{% if alert.rule.severity == 'critical' %}bg-coral-subtle{% endif %}">
+                                    <td class="ps-3">
+                                        <a href="{% url 'patient-detail' alert.reading.patient.id %}" class="fw-semibold text-decoration-none text-dark d-flex align-items-center">
+                                            <i class="bi bi-person-fill me-1 text-teal"></i>
+                                            {{ alert.reading.patient.get_full_name|default:alert.reading.patient.username }}
+                                        </a>
+                                        <div class="text-muted small" style="font-size: 0.75rem;"><code>{{ alert.reading.patient.username }}</code></div>
+                                    </td>
+                                    <td>
+                                        <span class="fw-medium text-dark">{{ alert.reading.get_vital_type_display }}</span>
+                                        <div class="text-muted small" style="font-size: 0.75rem;">Device: {{ alert.reading.device.device_id|default:"Direct Ingest" }}</div>
+                                    </td>
+                                    <td>
+                                        <span class="fs-6 fw-bold {% if alert.rule.severity == 'critical' %}text-coral{% else %}text-dark{% endif %}">
+                                            {{ alert.reading.value }}
+                                        </span>
+                                        <span class="text-muted small">{{ alert.reading.unit }}</span>
+                                    </td>
+                                    <td>
+                                        <div class="small text-secondary">
+                                            {{ alert.rule.description|default:"Threshold out of normal bounds" }}
+                                        </div>
+                                        <div class="text-muted" style="font-size: 0.725rem;">
+                                            {% if alert.rule.min_value %}Min: {{ alert.rule.min_value }} {{ alert.reading.unit }}{% endif %}
+                                            {% if alert.rule.min_value and alert.rule.max_value %} | {% endif %}
+                                            {% if alert.rule.max_value %}Max: {{ alert.rule.max_value }} {{ alert.reading.unit }}{% endif %}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        {% if alert.rule.severity == 'critical' %}
+                                            <span class="badge badge-critical px-2 py-1 pulse-critical">
+                                                <i class="bi bi-exclamation-triangle-fill me-1"></i> CRITICAL
+                                            </span>
+                                        {% elif alert.rule.severity == 'high' %}
+                                            <span class="badge badge-high px-2 py-1">HIGH</span>
+                                        {% elif alert.rule.severity == 'medium' %}
+                                            <span class="badge badge-medium px-2 py-1">MEDIUM</span>
+                                        {% else %}
+                                            <span class="badge badge-low px-2 py-1">LOW</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-muted small">
+                                        <div>{{ alert.created_at|date:"M d, Y" }}</div>
+                                        <div style="font-size: 0.75rem;">{{ alert.created_at|date:"H:i:s" }} UTC</div>
+                                    </td>
+                                    <td class="text-end pe-3">
+                                        <button type="button" class="btn btn-sm btn-outline-teal fw-medium resolve-modal-btn"
+                                            data-alert-id="{{ alert.id }}"
+                                            data-patient-name="{{ alert.reading.patient.get_full_name|default:alert.reading.patient.username }}"
+                                            data-vital="{{ alert.reading.get_vital_type_display }}"
+                                            data-value="{{ alert.reading.value }} {{ alert.reading.unit }}"
+                                            data-severity="{{ alert.rule.get_severity_display|default:'Alert' }}"
+                                            style="border-color: var(--rc-teal); color: var(--rc-teal);">
+                                            <i class="bi bi-check-circle me-1"></i> Resolve
+                                        </button>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="text-center py-5">
+                    <div class="mb-2" style="color: var(--rc-teal);">
+                        <i class="bi bi-shield-check fs-1"></i>
+                    </div>
+                    <h6 class="fw-bold text-dark">All Telemetry Readings Within Normal Range</h6>
+                    <p class="text-muted small mb-0">No open clinical alerts for the selected patient scope.</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Assigned Patients Section -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 py-3">
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge p-2 rounded-3" style="background-color: var(--rc-teal-light); color: var(--rc-teal);">
+                    <i class="bi bi-people fs-6"></i>
+                </span>
+                <div>
+                    <h5 class="mb-0 fw-bold text-dark">Assigned Patients Under Monitoring</h5>
+                    <div class="text-muted small">Patients with active biomedical telemetry streaming</div>
+                </div>
+            </div>
+            <div>
+                <input type="text" id="patientSearchInput" class="form-control form-control-sm" placeholder="Search patient name, condition..." style="max-width: 260px; border-color: var(--rc-border);">
+            </div>
+        </div>
+
+        <div class="card-body p-0">
+            {% if patients_data %}
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" id="patientsTable">
+                        <thead class="table-light text-secondary small text-uppercase">
+                            <tr>
+                                <th class="ps-3">Patient Name</th>
+                                <th>Demographics</th>
+                                <th>Primary Diagnosis / History</th>
+                                <th>Biomedical Devices</th>
+                                <th>Latest Vitals Telemetry</th>
+                                <th>Alert Status</th>
+                                <th class="text-end pe-3">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in patients_data %}
+                                <tr class="patient-row">
+                                    <td class="ps-3">
+                                        <div class="d-flex align-items-center">
+                                            <div class="rounded-circle d-flex align-items-center justify-content-center me-2 fw-bold" style="width: 36px; height: 36px; font-size: 0.9rem; background-color: var(--rc-teal-light); color: var(--rc-teal);">
+                                                {{ item.user.first_name|slice:":1"|default:"P" }}{{ item.user.last_name|slice:":1"|default:"" }}
+                                            </div>
+                                            <div>
+                                                <a href="{% url 'patient-detail' item.user.id %}" class="fw-bold text-dark text-decoration-none patient-name">
+                                                    {{ item.user.get_full_name|default:item.user.username }}
+                                                </a>
+                                                <div class="text-muted small" style="font-size: 0.75rem;"><code>{{ item.user.username }}</code></div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="small">
+                                        <div>
+                                            {{ item.profile.get_gender_display|default:"Unknown" }},
+                                            {% if item.profile.age %}{{ item.profile.age }} yrs{% else %}Age N/A{% endif %}
+                                        </div>
+                                        <div class="text-muted">Blood: <span class="badge border" style="background-color: var(--rc-cream); color: #644a04;">{{ item.profile.blood_group|default:"N/A" }}</span></div>
+                                    </td>
+                                    <td class="small" style="max-width: 250px;">
+                                        <div class="text-truncate text-secondary patient-history" title="{{ item.profile.medical_history }}">
+                                            {{ item.profile.medical_history|default:"No chronic history recorded." }}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="d-flex flex-wrap gap-1">
+                                            {% for dev in item.devices %}
+                                                <span class="badge {% if dev.is_active %}border{% else %}bg-secondary-subtle text-muted{% endif %}" style="font-size: 0.7rem; {% if dev.is_active %}background-color: var(--rc-teal-light); color: var(--rc-teal-dark); border-color: var(--rc-aqua) !important;{% endif %}" title="{{ dev.model_name }} ({{ dev.device_id }})">
+                                                    <i class="bi bi-cpu me-1"></i>{{ dev.get_device_type_display }}
+                                                </span>
+                                            {% empty %}
+                                                <span class="text-muted small">No devices assigned</span>
+                                            {% endfor %}
+                                        </div>
+                                    </td>
+                                    <td class="small">
+                                        {% if item.last_reading %}
+                                            <div class="fw-semibold text-dark">
+                                                {{ item.last_reading.get_vital_type_display }}:
+                                                <span class="text-teal">{{ item.last_reading.value }} {{ item.last_reading.unit }}</span>
+                                            </div>
+                                            <div class="text-muted" style="font-size: 0.725rem;">
+                                                {{ item.last_reading.timestamp|date:"M d, H:i" }} UTC
+                                            </div>
+                                        {% else %}
+                                            <span class="text-muted">No telemetry received yet</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if item.open_alerts_count > 0 %}
+                                            <span class="badge badge-critical px-2 py-1">
+                                                <i class="bi bi-exclamation-circle-fill me-1"></i> {{ item.open_alerts_count }} Alert{{ item.open_alerts_count|pluralize }}
+                                            </span>
+                                        {% else %}
+                                            <span class="badge px-2 py-1 border" style="background-color: var(--rc-teal-light); color: var(--rc-teal-dark); border-color: var(--rc-aqua) !important;">
+                                                <i class="bi bi-check2-circle me-1"></i> Stable
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end pe-3">
+                                        <a href="{% url 'patient-detail' item.user.id %}" class="btn btn-sm btn-teal d-inline-flex align-items-center gap-1 shadow-sm">
+                                            <i class="bi bi-activity"></i> View Live Vitals
+                                        </a>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="text-center py-5">
+                    <p class="text-muted mb-0">No assigned patients found under your profile.</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+</div>
+
+<!-- Resolve Alert Modal -->
+<div class="modal fade" id="resolveAlertModal" tabindex="-1" aria-labelledby="resolveAlertModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header" style="background-color: var(--rc-teal-light); border-bottom: 2px solid var(--rc-aqua);">
+                <h5 class="modal-title fw-bold text-dark" id="resolveAlertModalLabel">
+                    <i class="bi bi-shield-check me-1 text-teal"></i> Resolve Clinical Alert
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="p-3 rounded-3 mb-3 border" style="background-color: var(--rc-bg);">
+                    <div class="row g-2 small">
+                        <div class="col-6"><strong>Patient:</strong> <span id="modalPatientName">-</span></div>
+                        <div class="col-6"><strong>Severity:</strong> <span id="modalSeverity">-</span></div>
+                        <div class="col-6"><strong>Vital Parameter:</strong> <span id="modalVital">-</span></div>
+                        <div class="col-6"><strong>Measured Value:</strong> <span id="modalValue" class="fw-bold text-coral">-</span></div>
+                    </div>
+                </div>
+
+                <form id="resolveAlertForm" method="post" action="">
+                    {% csrf_token %}
+                    <input type="hidden" id="modalAlertId" name="alert_id" value="">
+                    <div class="mb-3">
+                        <label for="resolutionNotesInput" class="form-label fw-semibold text-secondary small">
+                            Clinical Resolution Notes & Instructions
+                        </label>
+                        <textarea class="form-control" id="resolutionNotesInput" name="resolution_notes" rows="3" placeholder="Document clinical action (e.g. medication adjustment, instructed patient to rest, scheduled consultation)..."></textarea>
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-teal fw-medium" id="confirmResolveBtn">
+                            <i class="bi bi-check-lg me-1"></i> Confirm & Resolve
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchInput = document.getElementById('patientSearchInput');
+        if (searchInput) {
+            searchInput.addEventListener('input', function() {
+                const query = this.value.toLowerCase().trim();
+                const rows = document.querySelectorAll('.patient-row');
+                rows.forEach(row => {
+                    const name = row.querySelector('.patient-name').textContent.toLowerCase();
+                    const history = row.querySelector('.patient-history').textContent.toLowerCase();
+                    if (name.includes(query) || history.includes(query)) {
+                        row.style.display = '';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+            });
+        }
+
+        const resolveModal = new bootstrap.Modal(document.getElementById('resolveAlertModal'));
+        const modalAlertId = document.getElementById('modalAlertId');
+        const modalPatientName = document.getElementById('modalPatientName');
+        const modalSeverity = document.getElementById('modalSeverity');
+        const modalVital = document.getElementById('modalVital');
+        const modalValue = document.getElementById('modalValue');
+        const resolutionNotesInput = document.getElementById('resolutionNotesInput');
+        const resolveForm = document.getElementById('resolveAlertForm');
+
+        document.querySelectorAll('.resolve-modal-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                const alertId = this.getAttribute('data-alert-id');
+                const patientName = this.getAttribute('data-patient-name');
+                const vital = this.getAttribute('data-vital');
+                const value = this.getAttribute('data-value');
+                const severity = this.getAttribute('data-severity');
+
+                modalAlertId.value = alertId;
+                modalPatientName.textContent = patientName;
+                modalSeverity.textContent = severity;
+                modalVital.textContent = vital;
+                modalValue.textContent = value;
+                resolutionNotesInput.value = '';
+
+                resolveForm.action = `/doctor/alerts/${alertId}/resolve/`;
+                resolveModal.show();
+            });
+        });
+
+        resolveForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const alertId = modalAlertId.value;
+            const notes = resolutionNotesInput.value.trim();
+            const csrfToken = getCsrfToken();
+            const confirmBtn = document.getElementById('confirmResolveBtn');
+
+            confirmBtn.disabled = true;
+            confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Resolving...';
+
+            fetch(`/api/alerts/${alertId}/resolve/`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken,
+                },
+                body: JSON.stringify({
+                    resolution_notes: notes
+                })
+            })
+            .then(response => {
+                if (!response.ok) throw new Error('Server returned ' + response.status);
+                return response.json();
+            })
+            .then(data => {
+                resolveModal.hide();
+                const row = document.getElementById(`alert-row-${alertId}`);
+                if (row) {
+                    row.style.transition = 'all 0.4s ease';
+                    row.style.backgroundColor = 'var(--rc-teal-light)';
+                    setTimeout(() => {
+                        row.remove();
+                        const countElem = document.getElementById('totalOpenAlertsCount');
+                        if (countElem) {
+                            let current = parseInt(countElem.textContent.trim()) || 1;
+                            countElem.textContent = Math.max(0, current - 1);
+                        }
+                    }, 500);
+                }
+            })
+            .catch(err => {
+                console.warn('AJAX resolve failed, submitting regular form fallback:', err);
+                resolveForm.submit();
+            })
+            .finally(() => {
+                confirmBtn.disabled = false;
+                confirmBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Confirm & Resolve';
+            });
+        });
+    });
+</script>
+{% endblock %}
