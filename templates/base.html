@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}RemoteCare - Remote Patient Monitoring System{% endblock %}</title>
+
+    <!-- Bootstrap 5.3 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <!-- Google Fonts Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        /* ==========================================================
+           Palette 1 Theme:
+           - #8bd7d2 : Soft Aqua / Mint Cyan
+           - #32a0a1 : Deep Ocean Teal
+           - #fff0c6 : Warm Cream / Soft Sand
+           - #ff8d51 : Warm Coral / Tangerine
+           ========================================================== */
+        :root {
+            --rc-aqua: #8bd7d2;
+            --rc-teal: #32a0a1;
+            --rc-teal-dark: #227576;
+            --rc-teal-light: #e8f7f6;
+            --rc-cream: #fff0c6;
+            --rc-coral: #ff8d51;
+            --rc-coral-dark: #e87233;
+            --rc-coral-light: #fff2ea;
+
+            --rc-primary: #32a0a1;
+            --rc-primary-dark: #227576;
+            --rc-bg: #f5f9f9;
+            --rc-card-bg: #ffffff;
+            --rc-border: #d4e8e6;
+            --rc-text-main: #132f34;
+            --rc-text-muted: #55797f;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--rc-bg);
+            color: var(--rc-text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Navbar */
+        .rc-navbar {
+            background-color: #14353a;
+            border-bottom: 2px solid var(--rc-aqua);
+            padding: 0.75rem 1.5rem;
+        }
+        .rc-brand {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: #ffffff !important;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .rc-brand i {
+            color: var(--rc-aqua);
+            font-size: 1.4rem;
+        }
+        .rc-nav-link {
+            color: #d0e7e6 !important;
+            font-weight: 500;
+            font-size: 0.925rem;
+            padding: 0.5rem 0.85rem !important;
+            border-radius: 0.5rem;
+            transition: all 0.2s ease;
+        }
+        .rc-nav-link:hover, .rc-nav-link.active {
+            color: #ffffff !important;
+            background-color: rgba(139, 215, 210, 0.15);
+        }
+
+        /* Cards & UI elements */
+        .card {
+            background-color: var(--rc-card-bg);
+            border: 1px solid var(--rc-border);
+            border-radius: 0.875rem;
+            box-shadow: 0 1px 3px 0 rgba(20, 53, 58, 0.04), 0 1px 2px -1px rgba(20, 53, 58, 0.04);
+            transition: box-shadow 0.2s ease;
+        }
+        .card-header {
+            background-color: transparent;
+            border-bottom: 1px solid var(--rc-border);
+            font-weight: 600;
+            padding: 1rem 1.25rem;
+        }
+
+        /* KPI Metric Cards */
+        .kpi-card {
+            border-radius: 0.875rem;
+            padding: 1.25rem;
+            border: 1px solid var(--rc-border);
+            background: #ffffff;
+            position: relative;
+            overflow: hidden;
+        }
+        .kpi-title {
+            font-size: 0.825rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--rc-text-muted);
+            margin-bottom: 0.35rem;
+        }
+        .kpi-value {
+            font-size: 1.85rem;
+            font-weight: 700;
+            line-height: 1.2;
+            color: var(--rc-text-main);
+        }
+        .kpi-sub {
+            font-size: 0.8rem;
+            color: var(--rc-text-muted);
+            margin-top: 0.25rem;
+        }
+        .kpi-icon {
+            position: absolute;
+            right: 1.25rem;
+            top: 1.25rem;
+            font-size: 2rem;
+            opacity: 0.18;
+        }
+
+        /* Palette-driven Severity Badges */
+        .badge-critical {
+            background-color: #fff1eb;
+            color: #b8420e;
+            border: 1px solid var(--rc-coral);
+            font-weight: 600;
+        }
+        .badge-high {
+            background-color: #fff8e8;
+            color: #9f5f0b;
+            border: 1px solid #ffd080;
+            font-weight: 600;
+        }
+        .badge-medium {
+            background-color: var(--rc-teal-light);
+            color: var(--rc-teal-dark);
+            border: 1px solid var(--rc-teal);
+            font-weight: 600;
+        }
+        .badge-low {
+            background-color: #f1f8f8;
+            color: var(--rc-text-muted);
+            border: 1px solid var(--rc-aqua);
+            font-weight: 600;
+        }
+
+        /* Live beacon animation */
+        @keyframes pulse-beacon {
+            0% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(50, 160, 161, 0.7); }
+            70% { transform: scale(1.1); box-shadow: 0 0 0 7px rgba(50, 160, 161, 0); }
+            100% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(50, 160, 161, 0); }
+        }
+        .live-beacon {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background-color: var(--rc-teal);
+            display: inline-block;
+            animation: pulse-beacon 2s infinite;
+        }
+
+        @keyframes pulse-alert {
+            0% { opacity: 1; }
+            50% { opacity: 0.55; }
+            100% { opacity: 1; }
+        }
+        .pulse-critical {
+            animation: pulse-alert 1.5s infinite;
+        }
+
+        /* Chart container */
+        .chart-box {
+            position: relative;
+            height: 220px;
+            width: 100%;
+        }
+
+        /* Buttons & Controls */
+        .btn-teal {
+            background-color: var(--rc-teal);
+            color: #ffffff;
+            border: none;
+            font-weight: 500;
+        }
+        .btn-teal:hover {
+            background-color: var(--rc-teal-dark);
+            color: #ffffff;
+        }
+
+        .btn-coral {
+            background-color: var(--rc-coral);
+            color: #ffffff;
+            border: none;
+            font-weight: 500;
+        }
+        .btn-coral:hover {
+            background-color: var(--rc-coral-dark);
+            color: #ffffff;
+        }
+
+        .badge-cream {
+            background-color: var(--rc-cream);
+            color: #644a04;
+            border: 1px solid #ebd79e;
+        }
+
+        .text-teal {
+            color: var(--rc-teal) !important;
+        }
+        .text-coral {
+            color: var(--rc-coral) !important;
+        }
+        .text-aqua {
+            color: var(--rc-aqua) !important;
+        }
+
+        .bg-teal-subtle {
+            background-color: var(--rc-teal-light) !important;
+        }
+        .bg-coral-subtle {
+            background-color: var(--rc-coral-light) !important;
+        }
+        .bg-cream {
+            background-color: var(--rc-cream) !important;
+        }
+
+        footer {
+            margin-top: auto;
+            background-color: #ffffff;
+            border-top: 1px solid var(--rc-border);
+            padding: 1rem 0;
+            font-size: 0.85rem;
+            color: var(--rc-text-muted);
+        }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+    <!-- Top Navigation Bar -->
+    <nav class="navbar navbar-expand-lg rc-navbar sticky-top">
+        <div class="container-fluid px-lg-4">
+            <a class="navbar-brand rc-brand" href="{% url 'home-redirect' %}">
+                <i class="bi bi-heart-pulse-fill"></i>
+                <span>RemoteCare</span>
+                <span class="badge px-2 py-1 ms-1" style="font-size: 0.7rem; font-weight: 600; background-color: var(--rc-aqua); color: #14353a;">RPM</span>
+            </a>
+
+            <button class="navbar-toggler text-white border-0" type="button" data-bs-toggle="collapse" data-bs-target="#rcNavbarContent">
+                <i class="bi bi-list fs-2"></i>
+            </button>
+
+            <div class="collapse navbar-collapse" id="rcNavbarContent">
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0 ms-lg-3">
+                    {% if user.is_authenticated %}
+                        {% if user.is_doctor or user.is_admin_role %}
+                            <li class="nav-item">
+                                <a class="nav-link rc-nav-link" href="{% url 'doctor-dashboard' %}">
+                                    <i class="bi bi-clipboard2-pulse me-1"></i> Doctor Dashboard
+                                </a>
+                            </li>
+                        {% endif %}
+
+                        {% if user.is_patient %}
+                            <li class="nav-item">
+                                <a class="nav-link rc-nav-link" href="{% url 'patient-dashboard' %}">
+                                    <i class="bi bi-activity me-1"></i> My Health Dashboard
+                                </a>
+                            </li>
+                        {% endif %}
+
+                        {% if user.is_admin_role %}
+                            <li class="nav-item">
+                                <a class="nav-link rc-nav-link" href="{% url 'admin-devices' %}">
+                                    <i class="bi bi-cpu me-1"></i> Device Management
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link rc-nav-link" href="/admin/" target="_blank">
+                                    <i class="bi bi-gear me-1"></i> System Admin <i class="bi bi-box-arrow-up-right ms-1" style="font-size: 0.75rem;"></i>
+                                </a>
+                            </li>
+                        {% endif %}
+                    {% endif %}
+                </ul>
+
+                <!-- Right-side user session controls -->
+                <div class="d-flex align-items-center gap-3">
+                    {% if user.is_authenticated %}
+                        <div class="d-flex align-items-center text-white bg-dark bg-opacity-25 px-3 py-1 rounded-pill border border-white border-opacity-20">
+                            <i class="bi bi-person-circle fs-5 me-2" style="color: var(--rc-aqua);"></i>
+                            <div class="text-start me-2">
+                                <div class="fw-semibold text-white" style="font-size: 0.85rem; line-height: 1.1;">
+                                    {{ user.get_full_name|default:user.username }}
+                                </div>
+                                <span class="badge" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; background-color: {% if user.is_admin_role %}var(--rc-coral){% elif user.is_doctor %}var(--rc-teal){% else %}var(--rc-aqua){% endif %}; color: {% if user.is_patient %}#14353a{% else %}#ffffff{% endif %};">
+                                    {{ user.get_role_display|upper }}
+                                </span>
+                            </div>
+                        </div>
+
+                        <form method="post" action="{% url 'logout' %}" class="d-inline m-0">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-outline-light d-flex align-items-center gap-1 rounded-pill px-3" style="border-color: rgba(255,255,255,0.3);">
+                                <i class="bi bi-box-arrow-right"></i>
+                                <span>Logout</span>
+                            </button>
+                        </form>
+                    {% else %}
+                        <a href="{% url 'login' %}" class="btn btn-sm btn-teal rounded-pill px-3">
+                            <i class="bi bi-box-arrow-in-right me-1"></i> Sign In
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Global Message Alerts -->
+    <div class="container-fluid px-lg-4 pt-3">
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert alert-{% if message.tags == 'error' %}danger{% elif message.tags == 'warning' %}warning{% elif message.tags == 'success' %}success{% else %}info{% endif %} alert-dismissible fade show shadow-sm" role="alert">
+                    <div class="d-flex align-items-center">
+                        {% if message.tags == 'error' %}
+                            <i class="bi bi-exclamation-octagon-fill fs-5 me-2 text-danger"></i>
+                        {% elif message.tags == 'success' %}
+                            <i class="bi bi-check-circle-fill fs-5 me-2" style="color: var(--rc-teal);"></i>
+                        {% elif message.tags == 'warning' %}
+                            <i class="bi bi-exclamation-triangle-fill fs-5 me-2" style="color: var(--rc-coral);"></i>
+                        {% else %}
+                            <i class="bi bi-info-circle-fill fs-5 me-2 text-primary"></i>
+                        {% endif %}
+                        <div>{{ message }}</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    </div>
+
+    <!-- Main Content Area -->
+    <main class="flex-grow-1">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container-fluid px-lg-4 d-flex flex-column flex-sm-row justify-content-between align-items-center gap-2">
+            <div>
+                <span class="fw-semibold text-dark">RemoteCare RPM</span> &mdash; Biomedical Telemetry & Intelligent Clinical Alerting Platform
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <span class="d-flex align-items-center gap-1 fw-medium" style="color: var(--rc-teal);">
+                    <span class="live-beacon"></span> Ingestion Stream Active
+                </span>
+                <span class="text-muted">|</span>
+                <span>Django 5 • Chart.js • Bootstrap 5</span>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Bootstrap 5.3 JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Chart.js 4.4 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+    <script>
+        function getCsrfToken() {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, 10) === ('csrftoken=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(10));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+    </script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
